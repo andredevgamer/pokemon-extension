@@ -121,6 +121,11 @@ namespace pokemon {
         healPercent: number
         recoilPercent: number
         priority: number
+        atkStageDelta: number
+        defStageDelta: number
+        spAtkStageDelta: number
+        spDefStageDelta: number
+        spdStageDelta: number
 
         constructor(
             name: string,
@@ -143,6 +148,11 @@ namespace pokemon {
             this.healPercent = 0
             this.recoilPercent = 0
             this.priority = 0
+            this.atkStageDelta = 0
+            this.defStageDelta = 0
+            this.spAtkStageDelta = 0
+            this.spDefStageDelta = 0
+            this.spdStageDelta = 0
         }
     }
 
@@ -260,6 +270,11 @@ namespace pokemon {
         ivSpAtk: number
         ivSpDef: number
         ivSpd: number
+        atkStage: number
+        defStage: number
+        spAtkStage: number
+        spDefStage: number
+        spdStage: number
 
         constructor(species: Species, level: number) {
             this.species = species
@@ -285,6 +300,11 @@ namespace pokemon {
             this.ailment = Ailment.None
             this.ailmentTurns = 0
             this.moves = []
+            this.atkStage = 0
+            this.defStage = 0
+            this.spAtkStage = 0
+            this.spDefStage = 0
+            this.spdStage = 0
         }
     }
 
@@ -560,6 +580,55 @@ namespace pokemon {
         return 10
     }
 
+    function clampStage(stage: number): number {
+        return clamp(stage, -6, 6)
+    }
+
+    function stagedStat(stat: number, stage: number): number {
+        let clamped = clampStage(stage)
+        if (clamped >= 0) return Math.max(1, Math.idiv(stat * (2 + clamped), 2))
+        return Math.max(1, Math.idiv(stat * 2, 2 + Math.abs(clamped)))
+    }
+
+    function changeBattleStages(mon: Monster, atk: number, def: number, spAtk: number, spDef: number, spd: number) {
+        mon.atkStage = clampStage(mon.atkStage + atk)
+        mon.defStage = clampStage(mon.defStage + def)
+        mon.spAtkStage = clampStage(mon.spAtkStage + spAtk)
+        mon.spDefStage = clampStage(mon.spDefStage + spDef)
+        mon.spdStage = clampStage(mon.spdStage + spd)
+    }
+
+    function moveHasStageEffect(move: MoveData): boolean {
+        return move.atkStageDelta != 0 ||
+            move.defStageDelta != 0 ||
+            move.spAtkStageDelta != 0 ||
+            move.spDefStageDelta != 0 ||
+            move.spdStageDelta != 0
+    }
+
+    function describeStageDelta(statName: string, delta: number): string {
+        if (delta == 0) return ""
+        if (delta > 0) return statName + " +" + delta
+        return statName + " " + delta
+    }
+
+    function stageMessage(move: MoveData): string {
+        let parts: string[] = []
+        let atkText = describeStageDelta("ATK", move.atkStageDelta)
+        let defText = describeStageDelta("DEF", move.defStageDelta)
+        let spAtkText = describeStageDelta("SATK", move.spAtkStageDelta)
+        let spDefText = describeStageDelta("SDEF", move.spDefStageDelta)
+        let spdText = describeStageDelta("SPD", move.spdStageDelta)
+
+        if (atkText) parts.push(atkText)
+        if (defText) parts.push(defText)
+        if (spAtkText) parts.push(spAtkText)
+        if (spDefText) parts.push(spDefText)
+        if (spdText) parts.push(spdText)
+
+        return parts.join(" ")
+    }
+
     // =========================================================
     // ESPÉCIES
     // =========================================================
@@ -707,6 +776,25 @@ namespace pokemon {
         move.target = target
     }
 
+    //% block="definir mudanÃ§a de status do golpe %move atk %atk def %def satk %spAtk sdef %spDef spd %spd alvo %target"
+    //% group="Golpes"
+    export function setMoveStatChanges(
+        move: MoveData,
+        atk: number,
+        def: number,
+        spAtk: number,
+        spDef: number,
+        spd: number,
+        target: MoveTarget
+    ) {
+        move.atkStageDelta = clamp(atk, -6, 6)
+        move.defStageDelta = clamp(def, -6, 6)
+        move.spAtkStageDelta = clamp(spAtk, -6, 6)
+        move.spDefStageDelta = clamp(spDef, -6, 6)
+        move.spdStageDelta = clamp(spd, -6, 6)
+        move.target = target
+    }
+
     // =========================================================
     // CRIATURAS
     // =========================================================
@@ -812,19 +900,34 @@ namespace pokemon {
         }
 
         if (move.category == MoveCategory.Status && move.power <= 0) {
+            let target = move.target == MoveTarget.Self ? attacker : defender
+            if (moveHasStageEffect(move)) {
+                changeBattleStages(
+                    target,
+                    move.atkStageDelta,
+                    move.defStageDelta,
+                    move.spAtkStageDelta,
+                    move.spDefStageDelta,
+                    move.spdStageDelta
+                )
+            }
             if (move.target == MoveTarget.Self) {
                 _lastText = attacker.nickname + " usou " + move.name + "."
             } else {
                 tryApplyAilment(defender, move.effectAilment, move.effectChance)
                 _lastText = attacker.nickname + " usou " + move.name + "."
             }
+            let stageText = stageMessage(move)
+            if (stageText.length > 0) {
+                _lastText += " " + stageText + "."
+            }
             applyEndTurnAilment(attacker)
             applyEndTurnAilment(defender)
             return 0
         }
 
-        let atkStat = move.category == MoveCategory.Physical ? attacker.atk : attacker.spAtk
-        let defStat = move.category == MoveCategory.Physical ? defender.def : defender.spDef
+        let atkStat = move.category == MoveCategory.Physical ? stagedStat(attacker.atk, attacker.atkStage) : stagedStat(attacker.spAtk, attacker.spAtkStage)
+        let defStat = move.category == MoveCategory.Physical ? stagedStat(defender.def, defender.defStage) : stagedStat(defender.spDef, defender.spDefStage)
 
         if (attacker.ailment == Ailment.Burn && move.category == MoveCategory.Physical) {
             atkStat = Math.max(1, Math.idiv(atkStat, 2))
@@ -879,6 +982,9 @@ namespace pokemon {
 
         let aSpd = a.spd
         let bSpd = b.spd
+
+        aSpd = stagedStat(aSpd, a.spdStage)
+        bSpd = stagedStat(bSpd, b.spdStage)
 
         if (a.ailment == Ailment.Paralysis) aSpd = Math.max(1, Math.idiv(aSpd, 2))
         if (b.ailment == Ailment.Paralysis) bSpd = Math.max(1, Math.idiv(bSpd, 2))
@@ -1027,6 +1133,17 @@ namespace pokemon {
     export function awardBattleExp(winner: Monster, defeated: Monster) {
         let amount = Math.max(1, Math.idiv(defeated.species.expYield * defeated.level, 7))
         giveExp(winner, amount)
+    }
+
+    //% block="resetar estado de batalha de %mon"
+    //% group="Batalha"
+    export function resetBattleState(mon: Monster) {
+        if (!mon) return
+        mon.atkStage = 0
+        mon.defStage = 0
+        mon.spAtkStage = 0
+        mon.spDefStage = 0
+        mon.spdStage = 0
     }
 
     //% block="pode evoluir %mon"
@@ -1211,12 +1328,11 @@ namespace pokemon {
     export function animateFloat(sprite: Sprite, amplitude: number, interval: number) {
         if (!sprite) return
         let baseY = sprite.y
+        let up = false
         game.onUpdateInterval(Math.max(50, interval), function () {
             if (!sprite) return
-            sprite.y = baseY - amplitude
-            pause(Math.max(30, Math.idiv(interval, 2)))
-            if (!sprite) return
-            sprite.y = baseY
+            up = !up
+            sprite.y = up ? baseY - amplitude : baseY
         })
     }
 
@@ -1298,6 +1414,32 @@ namespace pokemon {
             " SATK " + mon.spAtk +
             " SDEF " + mon.spDef +
             " SPD " + mon.spd
+    }
+
+    //% block="nome do tipo %type"
+    //% group="Leitura"
+    export function typeName(type: PokeType): string {
+        switch (type) {
+            case PokeType.Normal: return "Normal"
+            case PokeType.Fire: return "Fogo"
+            case PokeType.Water: return "Agua"
+            case PokeType.Grass: return "Planta"
+            case PokeType.Electric: return "Eletrico"
+            case PokeType.Ice: return "Gelo"
+            case PokeType.Fighting: return "Lutador"
+            case PokeType.Poison: return "Veneno"
+            case PokeType.Ground: return "Terra"
+            case PokeType.Flying: return "Voador"
+            case PokeType.Psychic: return "Psiquico"
+            case PokeType.Bug: return "Inseto"
+            case PokeType.Rock: return "Pedra"
+            case PokeType.Ghost: return "Fantasma"
+            case PokeType.Dragon: return "Dragao"
+            case PokeType.Dark: return "Sombrio"
+            case PokeType.Steel: return "Aco"
+            case PokeType.Fairy: return "Fada"
+        }
+        return "Desconhecido"
     }
 
     // =========================================================

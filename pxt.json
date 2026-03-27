@@ -7,6 +7,15 @@
     "files": [
         "main.blocks",
         "main.ts",
+        "slots.ts",
+        "ui-pokemon.ts",
+        "HelperCode1.ts",
+        "world-event.ts",
+        "world-tools.ts",
+        "tick-scheduler.ts",
+        "state-cache.ts",
+        "basic-behaviors.ts",
+        "minimap.ts",
         "README.md",
         "assets.json",
         "pokemon.ts"
